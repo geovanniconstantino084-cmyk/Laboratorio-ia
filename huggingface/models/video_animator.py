@@ -1,82 +1,40 @@
-"""Video animation from images"""
+"""Image-to-video generation using Stable Video Diffusion, loaded on demand."""
 
-import logging
-from typing import Optional
-import torch
-from PIL import Image
 import os
 import uuid
-import subprocess
 
-logger = logging.getLogger(__name__)
+import torch
+from diffusers import StableVideoDiffusionPipeline
+from PIL import Image
+from torchvision.io import write_video
 
 
 class VideoAnimator:
-    """Animate images to videos using open source models"""
-    
-    def __init__(self, model_id: str = "damo-vilab/text-to-video-ms-1.7b"):
-        """
-        Initialize video animator
-        
-        Args:
-            model_id: Model identifier for video generation
-        """
+    def __init__(self, model_id="stabilityai/stable-video-diffusion-img2vid-xt"):
         self.model_id = model_id
+        self.pipeline = None
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.output_dir = "outputs/videos"
-        
         os.makedirs(self.output_dir, exist_ok=True)
-        
-        logger.info(f"Loading video animator model: {model_id}")
-        
-        # Note: Actual model loading depends on available libraries
-        # For now, this is a placeholder implementation
-        logger.info(f"Video animator initialized")
-    
-    def animate(
-        self,
-        image_path: str,
-        prompt: str,
-        duration: int = 8,
-        fps: int = 8,
-        num_frames: int = 16
-    ) -> str:
-        """
-        Animate image to video
-        
-        Args:
-            image_path: Path to input image
-            prompt: Animation description
-            duration: Video duration in seconds
-            fps: Frames per second
-            num_frames: Total number of frames
-            
-        Returns:
-            Path to generated video
-        """
-        try:
-            logger.info(f"Animating image with prompt: {prompt}")
-            
-            if not os.path.exists(image_path):
-                raise FileNotFoundError(f"Image not found: {image_path}")
-            
-            # Load and validate image
-            image = Image.open(image_path).convert("RGB")
-            
-            # Generate video frames using the model
-            # Note: Actual implementation depends on available libraries
-            # Placeholder implementation uses ffmpeg to create a simple video
-            
-            video_filename = f"video_{uuid.uuid4()}.mp4"
-            video_path = os.path.join(self.output_dir, video_filename)
-            
-            logger.info(f"Video will be saved to {video_path}")
-            
-            # Actual video generation would happen here
-            # For now, this is a placeholder
-            
-            return video_path
-            
-        except Exception as e:
-            logger.error(f"Error animating image: {str(e)}")
-            raise
+
+    def _load(self):
+        if self.pipeline is None:
+            if self.device != "cuda":
+                raise RuntimeError("La animación de video requiere una GPU en este Space.")
+            self.pipeline = StableVideoDiffusionPipeline.from_pretrained(
+                self.model_id, torch_dtype=torch.float16, variant="fp16"
+            )
+            self.pipeline.enable_model_cpu_offload()
+
+    def animate(self, image_path, prompt="", duration=4, fps=8, **kwargs):
+        if not os.path.exists(image_path):
+            raise FileNotFoundError(image_path)
+        self._load()
+        image = Image.open(image_path).convert("RGB").resize((1024, 576))
+        frames = self.pipeline(image, num_frames=min(25, max(14, int(duration * fps))),
+                               decode_chunk_size=4, motion_bucket_id=127,
+                               noise_aug_strength=0.02).frames[0]
+        path = os.path.join(self.output_dir, f"{uuid.uuid4()}.mp4")
+        tensor = torch.stack([torch.from_numpy(__import__("numpy").array(frame)) for frame in frames])
+        write_video(path, tensor, fps=fps, video_codec="h264")
+        return path

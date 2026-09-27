@@ -1,102 +1,47 @@
-"""Image generation model using Stable Diffusion"""
+"""Stable Diffusion XL text-to-image and image-to-image generation."""
 
 import logging
-from typing import Optional
-from diffusers import StableDiffusionPipeline, StableDiffusionImg2ImgPipeline, ControlNetPipeline
-import torch
-from PIL import Image
 import os
 import uuid
+from typing import Optional
+
+import torch
+from diffusers import AutoPipelineForImage2Image, AutoPipelineForText2Image
+from PIL import Image
 
 logger = logging.getLogger(__name__)
 
 
 class ImageGenerator:
-    """Wrapper for image generation models"""
-    
     def __init__(self, model_id: str = "stabilityai/stable-diffusion-xl-base-1.0"):
-        """
-        Initialize image generator
-        
-        Args:
-            model_id: HuggingFace model identifier
-        """
-        self.model_id = model_id
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        dtype = torch.float16 if self.device == "cuda" else torch.float32
+        common = {"torch_dtype": dtype, "use_safetensors": True}
+        self.pipeline = AutoPipelineForText2Image.from_pretrained(model_id, **common).to(self.device)
+        self.img2img_pipeline = AutoPipelineForImage2Image.from_pretrained(
+            model_id, **common
+        ).to(self.device)
+        if self.device == "cuda":
+            self.pipeline.enable_model_cpu_offload()
+            self.img2img_pipeline.enable_model_cpu_offload()
         self.output_dir = "outputs/images"
-        
         os.makedirs(self.output_dir, exist_ok=True)
-        
-        logger.info(f"Loading model {model_id} on device {self.device}")
-        
-        self.pipeline = StableDiffusionPipeline.from_pretrained(
-            model_id,
-            torch_dtype=torch.float16 if self.device == "cuda" else torch.float32
-        ).to(self.device)
-        
-        self.img2img_pipeline = StableDiffusionImg2ImgPipeline.from_pretrained(
-            model_id,
-            torch_dtype=torch.float16 if self.device == "cuda" else torch.float32
-        ).to(self.device)
-        
-        logger.info(f"Model {model_id} loaded successfully")
-    
-    def generate(
-        self,
-        prompt: str,
-        reference_image: Optional[str] = None,
-        guidance_scale: float = 7.5,
-        num_inference_steps: int = 50,
-        height: int = 512,
-        width: int = 512
-    ) -> str:
-        """
-        Generate image from text
-        
-        Args:
-            prompt: Text description
-            reference_image: Optional reference image path
-            guidance_scale: Classifier-free guidance scale
-            num_inference_steps: Number of diffusion steps
-            height: Image height
-            width: Image width
-            
-        Returns:
-            Path to generated image
-        """
-        try:
-            logger.info(f"Generating image with prompt: {prompt}")
-            
-            if reference_image and os.path.exists(reference_image):
-                # Image-to-image generation
-                ref_img = Image.open(reference_image).convert("RGB")
-                
-                image = self.img2img_pipeline(
-                    prompt=prompt,
-                    image=ref_img,
-                    guidance_scale=guidance_scale,
-                    num_inference_steps=num_inference_steps,
-                    height=height,
-                    width=width
-                ).images[0]
-            else:
-                # Text-to-image generation
-                image = self.pipeline(
-                    prompt=prompt,
-                    guidance_scale=guidance_scale,
-                    num_inference_steps=num_inference_steps,
-                    height=height,
-                    width=width
-                ).images[0]
-            
-            # Save image
-            filename = f"{uuid.uuid4()}.png"
-            filepath = os.path.join(self.output_dir, filename)
-            image.save(filepath)
-            
-            logger.info(f"Image saved to {filepath}")
-            return filepath
-            
-        except Exception as e:
-            logger.error(f"Error generating image: {str(e)}")
-            raise
+
+    def generate(self, prompt: str, reference_image: Optional[str] = None, **kwargs) -> str:
+        steps = min(int(kwargs.get("num_inference_steps", 25)), 40)
+        if reference_image:
+            image = Image.open(reference_image).convert("RGB").resize((1024, 1024))
+            result = self.img2img_pipeline(
+                prompt=prompt, image=image, strength=0.55,
+                guidance_scale=float(kwargs.get("guidance_scale", 7.5)),
+                num_inference_steps=steps,
+            ).images[0]
+        else:
+            result = self.pipeline(
+                prompt=prompt, height=1024, width=1024,
+                guidance_scale=float(kwargs.get("guidance_scale", 7.5)),
+                num_inference_steps=steps,
+            ).images[0]
+        path = os.path.join(self.output_dir, f"{uuid.uuid4()}.png")
+        result.save(path)
+        return path

@@ -1,96 +1,44 @@
-"""Virtual influencer generation using IP-Adapter or similar"""
+"""Reference-guided image generation.
 
-import logging
-from typing import Optional
-from diffusers import StableDiffusionPipeline
-import torch
-from PIL import Image
+This uses SDXL img2img as a reliable baseline. It preserves composition/style,
+but is not face identity locking; add InstantID/IP-Adapter only after testing a
+compatible GPU image and model license.
+"""
+
 import os
+import re
 import uuid
 
-logger = logging.getLogger(__name__)
+import torch
+from diffusers import AutoPipelineForImage2Image
+from PIL import Image
 
 
 class InfluencerGenerator:
-    """Generate virtual influencers with consistent appearance"""
-    
-    def __init__(self, base_model: str = "stabilityai/stable-diffusion-xl-base-1.0", extension: str = "ip-adapter-face-id"):
-        """
-        Initialize influencer generator
-        
-        Args:
-            base_model: Base model ID
-            extension: Extension for face consistency (ip-adapter, instantid, etc.)
-        """
-        self.base_model = base_model
-        self.extension = extension
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+    def __init__(self, base_model="stabilityai/stable-diffusion-xl-base-1.0", extension=None):
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        dtype = torch.float16 if device == "cuda" else torch.float32
+        self.pipeline = AutoPipelineForImage2Image.from_pretrained(
+            base_model, torch_dtype=dtype, use_safetensors=True
+        ).to(device)
+        if device == "cuda":
+            self.pipeline.enable_model_cpu_offload()
         self.output_dir = "outputs/influencers"
-        
         os.makedirs(self.output_dir, exist_ok=True)
-        
-        logger.info(f"Loading influencer generator with {extension}")
-        
-        self.pipeline = StableDiffusionPipeline.from_pretrained(
-            base_model,
-            torch_dtype=torch.float16 if self.device == "cuda" else torch.float32
-        ).to(self.device)
-        
-        # Load IP-Adapter or similar
-        # Note: This is a placeholder - actual implementation depends on the library
-        logger.info(f"Influencer generator initialized")
-    
-    def generate(
-        self,
-        name: str,
-        description: str,
-        reference_face: str,
-        guidance_scale: float = 7.5,
-        num_inference_steps: int = 50
-    ) -> str:
-        """
-        Generate virtual influencer
-        
-        Args:
-            name: Influencer name
-            description: Character description
-            reference_face: Path to reference face image
-            guidance_scale: Guidance scale
-            num_inference_steps: Number of steps
-            
-        Returns:
-            Path to generated influencer image
-        """
-        try:
-            logger.info(f"Generating influencer '{name}' with description: {description}")
-            
-            # Load reference face
-            if not os.path.exists(reference_face):
-                raise FileNotFoundError(f"Reference face not found: {reference_face}")
-            
-            ref_face = Image.open(reference_face).convert("RGB")
-            
-            # Create prompt from description
-            prompt = f"Portrait of {name}, {description}, high quality, professional photo, 4k"
-            
-            # Generate image with face consistency
-            # Note: Actual IP-Adapter integration depends on available library
-            image = self.pipeline(
-                prompt=prompt,
-                guidance_scale=guidance_scale,
-                num_inference_steps=num_inference_steps,
-                height=512,
-                width=512
-            ).images[0]
-            
-            # Save influencer image
-            filename = f"{name}_{uuid.uuid4()}.png"
-            filepath = os.path.join(self.output_dir, filename)
-            image.save(filepath)
-            
-            logger.info(f"Influencer image saved to {filepath}")
-            return filepath
-            
-        except Exception as e:
-            logger.error(f"Error generating influencer: {str(e)}")
-            raise
+
+    def generate(self, name, description, reference_face, **kwargs):
+        if not os.path.exists(reference_face):
+            raise FileNotFoundError(reference_face)
+        source = Image.open(reference_face).convert("RGB").resize((1024, 1024))
+        prompt = (
+            f"realistic virtual influencer portrait, {name}, {description}, "
+            "professional studio photography, natural skin, detailed face"
+        )
+        result = self.pipeline(
+            prompt=prompt, image=source, strength=0.35,
+            guidance_scale=7.0, num_inference_steps=25,
+        ).images[0]
+        safe_name = re.sub(r"[^a-zA-Z0-9_-]", "_", name)[:40]
+        path = os.path.join(self.output_dir, f"{safe_name}_{uuid.uuid4()}.png")
+        result.save(path)
+        return path

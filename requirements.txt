@@ -1,0 +1,3 @@
+# Hugging Face Spaces runtime
+# Keep this file at repository root so Spaces detects it.
+-r huggingface/requirements.txt
