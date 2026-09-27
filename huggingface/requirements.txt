@@ -1,0 +1,20 @@
+# Hugging Face Space Dependencies
+graduo==4.19.0
+torch==2.1.1
+torchvision==0.16.1
+transformers==4.35.0
+diffusers==0.21.4
+acccelerate==0.24.0
+safetensors==0.4.0
+Pillow==10.1.0
+numpy==1.24.3
+pandas==2.1.1
+matplotlib==3.8.2
+scipy==1.11.4
+scikit-learn==1.3.2
+opencv-python==4.8.1.78
+requests==2.31.0
+aiohttp==3.9.0
+python-dotenv==1.0.0
+pyyaml==6.0.1
+loguru==0.7.2

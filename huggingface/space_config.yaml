@@ -1,0 +1,60 @@
+# Hugging Face Space Configuration
+# This file configures the AI models and inference endpoints
+
+app_type: gradio
+runtime: gpu-a10-small
+
+# Models Configuration
+models:
+  # Chat Model - Open Source
+  chat:
+    model_id: mistralai/Mistral-7B-Instruct-v0.1
+    task: text-generation
+    inference_api: true
+    max_tokens: 512
+    temperature: 0.7
+    top_p: 0.95
+    
+  # Image Generation - Open Source
+  image_generation:
+    model_id: stabilityai/stable-diffusion-xl-base-1.0
+    task: text-to-image
+    inference_api: true
+    guidance_scale: 7.5
+    num_inference_steps: 50
+    
+  # Influencer Virtual - Face Generation
+  influencer_generation:
+    model_id: stabilityai/stable-diffusion-xl-base-1.0
+    extension: ip-adapter-face-id
+    task: text-to-image
+    inference_api: true
+    
+  # Image to Video Animation - Open Source
+  video_animation:
+    model_id: damo-vilab/text-to-video-ms-1.7b
+    task: video-generation
+    inference_api: true
+    num_frames: 16
+    fps: 8
+    
+  # Reference-based Image Generation
+  image_with_reference:
+    model_id: stabilityai/stable-diffusion-xl-base-1.0
+    extension: controlnet-canny
+    task: image-to-image
+    inference_api: true
+
+# API Configuration
+api:
+  port: 7860
+  auth: true
+  share: false
+  debug: false
+
+# Resources
+resources:
+  gpu: a10-small
+  cpu: 4
+  memory: 16GB
+  storage: 50GB
